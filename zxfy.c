@@ -37,6 +37,25 @@
 
 #define ZX_VMEM_SIZE 6912 // ZX Spectrum video mem size. Bitmap + attributes.
 
+static const uint32_t zxpalette[16] = {
+    0x000000,     // std black
+    0xD70000,     // std blue
+    0x0000D7,     // std red
+    0xD700D7,     // std magenta
+    0x00D700,     // std green
+    0xD7D700,     // std cyan
+    0x00D7D7,     // std yellow
+    0xD7D7D7,     // std white
+    0x000000,     // bright black
+    0xFF0000,     // bright blue
+    0x0000FF,     // bright red
+    0xFF00FF,     // bright magenta
+    0x00FF00,     // bright green
+    0xFFFF00,     // bright cyan
+    0x00FFFF,     // bright yellow
+    0xFFFFFF,     // bright white
+};
+
 /* SDL initialization function. */
 static SDL_Texture *sdlInit(int width, int height, int fullscreen, SDL_Renderer **rp) {
     int flags = SDL_WINDOW_OPENGL;
@@ -256,21 +275,137 @@ void showHelp(char *progname) {
     exit(1);
 }
 
+// Mutate 'count' random bits from the ZX Spectrum memory representation.
+// Each time, a window is selected for the mutation, and only bytes about
+// such window are muated (both bitmap and attributes). Windows are always
+// multiple of 8 in size.
+#if 0
+void mutate(unsigned char *zxmem, int count) {
+    int wx_start = rand() % 31;
+    int wy_start = rand() % 23;
+    int wx_end = 1 + wx_start + (rand() % 1);
+    int wy_end = 1 + wy_start + (rand() % 1);
+    wx_start *= 8;
+    wy_start *= 8;
+    wx_end *= 8;
+    wy_end *= 8;
+
+    // Handle overflow
+    if (wx_end > 256) wx_end = 256;
+    if (wy_end > 192) wy_end = 192;
+
+    // Compute window size so that we can generate random points
+    // inside the window easily.
+    int wx_size = wx_end-wx_start;
+    int wy_size = wy_end-wy_start;
+
+    for (int j = 0; j < count; j++) {
+        int rx = rand() % wx_size;
+        int ry = rand() % wy_size;
+        int x = wx_start+rx;
+        int y = wy_start+ry;
+        uint16_t y_offset = ((y & 0xC0)<<5) | ((y & 0x07)<<8) | ((y & 0x38)<<2);
+        uint16_t pix_offset = y_offset | x;
+        uint16_t clr_offset = 0x1800 + (((y & ~0x7)<<2) | x);
+        if (rand() % 10) {
+            uint32_t bit = x % 8;
+            zxmem[pix_offset] ^= 1<<bit;
+        } else {
+            uint32_t bit = rand() % 8;
+            zxmem[clr_offset] ^= 1<<bit;
+        }
+    }
+}
+#else
+void mutate(unsigned char *zxmem, int count, int gen) {
+    for (int j = 0; j < count; j++) {
+        uint32_t byte = rand() % ZX_VMEM_SIZE;
+        uint32_t bit = rand() % 8;
+        if (gen < 100000) {
+            if (byte < 256*192/8) {
+                j--;
+                continue;
+            } else {
+                int clr = zxmem[byte] ^ 1<<bit;
+                int fg = clr & 7;
+                int bg = (clr>>3) & 7;
+                fg |= (clr & (1<<6)) >> 3;
+                bg |= (clr & (1<<6)) >> 3;
+                if (fg != bg) zxmem[byte] = clr;
+            }
+        } else if (gen < 1000000) {
+            if (byte >= 256*192/8) {
+                j--;
+                continue;
+            }
+            zxmem[byte] ^= 1<<bit;
+        } else {
+            zxmem[byte] ^= 1<<bit;
+        }
+    }
+}
+#endif
+
+// Render the ZX Spectrum VRAM into the framebuffer.
+void zx2rgb(unsigned char *fb, unsigned char *zxmem) {
+    int blink = 0;
+    for (int y = 0; y < 192; y++) {
+        uint16_t y_offset = ((y & 0xC0)<<5) | ((y & 0x07)<<8) | ((y & 0x38)<<2);
+        for (int x = 0; x < 32; x++) {
+            uint16_t pix_offset = y_offset | x;
+            uint16_t clr_offset = 0x1800 + (((y & ~0x7)<<2) | x);
+
+            // pixel mask and color attribute bytes
+            uint8_t pix = zxmem[pix_offset];
+            uint8_t clr = zxmem[clr_offset];
+
+            // foreground and background color
+            uint8_t fg, bg;
+            if ((clr & (1<<7)) && blink) {
+                fg = (clr>>3) & 7;
+                bg = clr & 7;
+            }
+            else {
+                fg = clr & 7;
+                bg = (clr>>3) & 7;
+            }
+            // color bit 6: standard vs bright
+            fg |= (clr & (1<<6)) >> 3;
+            bg |= (clr & (1<<6)) >> 3;
+
+            int c1 = ((pix&0x80) ? fg : bg);
+            int c2 = ((pix&0x40) ? fg : bg);
+            int c3 = ((pix&0x20) ? fg : bg);
+            int c4 = ((pix&0x10) ? fg : bg);
+            int c5 = ((pix&0x08) ? fg : bg);
+            int c6 = ((pix&0x04) ? fg : bg);
+            int c7 = ((pix&0x02) ? fg : bg);
+            int c8 = ((pix&0x01) ? fg : bg);
+
+            memcpy(fb,&zxpalette[c1],3); fb += 3;
+            memcpy(fb,&zxpalette[c2],3); fb += 3;
+            memcpy(fb,&zxpalette[c3],3); fb += 3;
+            memcpy(fb,&zxpalette[c4],3); fb += 3;
+            memcpy(fb,&zxpalette[c5],3); fb += 3;
+            memcpy(fb,&zxpalette[c6],3); fb += 3;
+            memcpy(fb,&zxpalette[c7],3); fb += 3;
+            memcpy(fb,&zxpalette[c8],3); fb += 3;
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     FILE *fp;
     int width, height, alpha;
-    unsigned char *image, *fb;
+    unsigned char *image, *fb, *new, *best;
     SDL_Texture *texture;
     SDL_Renderer *renderer;
     long long diff;
-    float percdiff, bestdiff;
+    float percdiff, bestdiff = 0;
 
     /* Initialization */
     srand(time(NULL));
-    state.temperature = 0.10;
-    state.generation = 0;
-    state.absbestdiff = 100; /* 100% is worst diff possible. */
 
     /* Check arity and parse additional args if any. */
     if (argc != 2) {
@@ -302,6 +437,7 @@ int main(int argc, char **argv)
     texture = sdlInit(width,height,0,&renderer);
     fb = malloc(width*height*3);
     best = malloc(ZX_VMEM_SIZE);
+    for (int j = 0; j < ZX_VMEM_SIZE; j++) best[j] = rand();
     new = malloc(ZX_VMEM_SIZE);
 
     /* Show the current evolved image and the real image for one second each. */
@@ -315,13 +451,12 @@ int main(int argc, char **argv)
     uint64_t generation = 0;
     uint64_t temperature = 64; // Bits mutated per iteration.
     while(1) {
-        generation++;
-        if (temperature > 1 && !(state.generation % 1000))
+        if (temperature > 5 && !(generation % 10000))
             temperature--;
 
         /* Copy what is currenly the best solution, and mutate it. */
-        memcpy(new,best,sizeof(new));
-        mutate(new);
+        memcpy(new,best,ZX_VMEM_SIZE);
+        mutate(new,1+(rand()%temperature),generation);
 
         /* Draw the mutated solution, and check what is its fitness.
          * In our case the fitness is the difference bewteen the target
@@ -335,19 +470,22 @@ int main(int argc, char **argv)
          * The magic constant 422 is actually the max difference between
          * two pixels as r,g,b coordinates in the space, so sqrt(255^2*3). */
         percdiff = (float)diff/(width*height*442)*100;
-        if (percdiff < bestdiff) {
+        if (generation == 0 || percdiff <= bestdiff) {
             /* Save what is currently our "best" solution, even if actually
              * this may be a jump backward depending on the temperature.
              * It will be used as a base of the next iteration. */
-            memcpy(best,new,sizeof(new));
+            memcpy(best,new,ZX_VMEM_SIZE);
 
             bestdiff = percdiff;
             sdlShowRgb(texture,renderer,fb,width,height);
-
-            if (state.generation % 10 == 0)
-                printf("%llu: %f%%\n", generation, percdiff);
+            printf("!!!:%llu: diff:%f%% mut:%llu\n", generation, percdiff,
+                temperature);
         }
+        if (generation % 100000 == 0)
+            printf("gen:%llu: diff:%f%% mut:%llu\n", generation, percdiff,
+                temperature);
         processSdlEvents();
+        generation++;
     }
     return 0;
 }
