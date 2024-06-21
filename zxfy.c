@@ -256,15 +256,37 @@ unsigned char *PngLoad(FILE *fp, int *widthptr, int *heightptr, int *alphaptr) {
  * A single pixel difference is computed as spacial distance between the RGB
  * color space. */
 long long computeDiff(unsigned char *a, unsigned char *b, int width, int height) {
-    int j;
     long long d = 0;
     long long dr, dg, db;
 
-    for (j = 0; j < width*height*3; j+=3) {
-        dr = (int)a[j]-(int)b[j];
-        dg = (int)a[j+1]-(int)b[j+1];
-        db = (int)a[j+2]-(int)b[j+2];
-        d += sqrt(dr*dr+dg*dg+db*db);
+    for (int y = 0; y < height-1; y++) {
+        for (int x = 0; x < width-1; x++) {
+            int i = (y*width+x)*3;
+            dr = (int)a[i]-(int)b[i];
+            dg = (int)a[i+1]-(int)b[i+1];
+            db = (int)a[i+2]-(int)b[i+2];
+
+            i += 3;
+            dr += (int)a[i]-(int)b[i];
+            dg += (int)a[i+1]-(int)b[i+1];
+            db += (int)a[i+2]-(int)b[i+2];
+
+            i += width*3;
+            dr += (int)a[i]-(int)b[i];
+            dg += (int)a[i+1]-(int)b[i+1];
+            db += (int)a[i+2]-(int)b[i+2];
+
+            i -= 3;
+            dr += (int)a[i]-(int)b[i];
+            dg += (int)a[i+1]-(int)b[i+1];
+            db += (int)a[i+2]-(int)b[i+2];
+
+            dr /= 4;
+            dg /= 4;
+            db /= 4;
+
+            d += sqrt(dr*dr+dg*dg+db*db);
+        }
     }
     return d;
 }
@@ -321,7 +343,7 @@ void mutate(unsigned char *zxmem, int count, int gen) {
     for (int j = 0; j < count; j++) {
         uint32_t byte = rand() % ZX_VMEM_SIZE;
         uint32_t bit = rand() % 8;
-        if (gen < 100000) {
+        if (gen < 250000) {
             if (byte < 256*192/8) {
                 j--;
                 continue;
