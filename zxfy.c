@@ -343,7 +343,7 @@ void mutate(unsigned char *zxmem, int count, int gen) {
     for (int j = 0; j < count; j++) {
         uint32_t byte = rand() % ZX_VMEM_SIZE;
         uint32_t bit = rand() % 8;
-        if (gen < 250000) {
+        if (gen < 180000) {
             if (byte < 256*192/8) {
                 j--;
                 continue;
@@ -471,7 +471,7 @@ int main(int argc, char **argv)
 
     /* Evolve the current solution using simulated annealing. */
     uint64_t generation = 0;
-    uint64_t temperature = 64; // Bits mutated per iteration.
+    uint64_t temperature = 20; // Bits mutated per iteration.
     while(1) {
         if (temperature > 5 && !(generation % 10000))
             temperature--;
