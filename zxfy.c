@@ -69,7 +69,7 @@ static SDL_Texture *sdlInit(int width, int height, int fullscreen, SDL_Renderer 
         return NULL;
     }
     atexit(SDL_Quit);
-    screen = SDL_CreateWindow("Shapeme",
+    screen = SDL_CreateWindow("ZXfy",
                               SDL_WINDOWPOS_UNDEFINED,
                               SDL_WINDOWPOS_UNDEFINED,
                               width,height,flags);
@@ -343,7 +343,7 @@ void mutate(unsigned char *zxmem, int count, int gen) {
     for (int j = 0; j < count; j++) {
         uint32_t byte = rand() % ZX_VMEM_SIZE;
         uint32_t bit = rand() % 8;
-        if (gen < 180000) {
+        if (gen > 200000 && gen < 400000) {
             if (byte < 256*192/8) {
                 j--;
                 continue;
@@ -355,8 +355,14 @@ void mutate(unsigned char *zxmem, int count, int gen) {
                 bg |= (clr & (1<<6)) >> 3;
                 if (fg != bg) zxmem[byte] = clr;
             }
-        } else if (gen < 1000000) {
+        } else if (gen < 200000) {
             if (byte >= 256*192/8) {
+                j--;
+                continue;
+            }
+            zxmem[byte] ^= 1<<bit;
+        } else if (gen > 400000 && gen < 600000) {
+            if (byte < 256*192/8) {
                 j--;
                 continue;
             }
@@ -460,6 +466,7 @@ int main(int argc, char **argv)
     fb = malloc(width*height*3);
     best = malloc(ZX_VMEM_SIZE);
     for (int j = 0; j < ZX_VMEM_SIZE; j++) best[j] = rand();
+    for (int j = 256*192/8; j < ZX_VMEM_SIZE; j++) best[j] = 7; // white fg
     new = malloc(ZX_VMEM_SIZE);
 
     /* Show the current evolved image and the real image for one second each. */
@@ -471,7 +478,7 @@ int main(int argc, char **argv)
 
     /* Evolve the current solution using simulated annealing. */
     uint64_t generation = 0;
-    uint64_t temperature = 20; // Bits mutated per iteration.
+    uint64_t temperature = 5; // Bits mutated per iteration.
     while(1) {
         if (temperature > 5 && !(generation % 10000))
             temperature--;
@@ -497,15 +504,14 @@ int main(int argc, char **argv)
              * this may be a jump backward depending on the temperature.
              * It will be used as a base of the next iteration. */
             memcpy(best,new,ZX_VMEM_SIZE);
-
             bestdiff = percdiff;
-            sdlShowRgb(texture,renderer,fb,width,height);
-            printf("!!!:%llu: diff:%f%% mut:%llu\n", generation, percdiff,
-                temperature);
         }
-        if (generation % 100000 == 0)
+        if (generation % 1000 == 0) {
+            zx2rgb(fb,best);
+            sdlShowRgb(texture,renderer,fb,width,height);
             printf("gen:%llu: diff:%f%% mut:%llu\n", generation, percdiff,
                 temperature);
+        }
         processSdlEvents();
         generation++;
     }
