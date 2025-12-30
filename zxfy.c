@@ -297,53 +297,17 @@ void showHelp(char *progname) {
     exit(1);
 }
 
-// Mutate 'count' random bits from the ZX Spectrum memory representation.
-// Each time, a window is selected for the mutation, and only bytes about
-// such window are muated (both bitmap and attributes). Windows are always
-// multiple of 8 in size.
-#if 0
-void mutate(unsigned char *zxmem, int count) {
-    int wx_start = rand() % 31;
-    int wy_start = rand() % 23;
-    int wx_end = 1 + wx_start + (rand() % 1);
-    int wy_end = 1 + wy_start + (rand() % 1);
-    wx_start *= 8;
-    wy_start *= 8;
-    wx_end *= 8;
-    wy_end *= 8;
-
-    // Handle overflow
-    if (wx_end > 256) wx_end = 256;
-    if (wy_end > 192) wy_end = 192;
-
-    // Compute window size so that we can generate random points
-    // inside the window easily.
-    int wx_size = wx_end-wx_start;
-    int wy_size = wy_end-wy_start;
-
-    for (int j = 0; j < count; j++) {
-        int rx = rand() % wx_size;
-        int ry = rand() % wy_size;
-        int x = wx_start+rx;
-        int y = wy_start+ry;
-        uint16_t y_offset = ((y & 0xC0)<<5) | ((y & 0x07)<<8) | ((y & 0x38)<<2);
-        uint16_t pix_offset = y_offset | x;
-        uint16_t clr_offset = 0x1800 + (((y & ~0x7)<<2) | x);
-        if (rand() % 10) {
-            uint32_t bit = x % 8;
-            zxmem[pix_offset] ^= 1<<bit;
-        } else {
-            uint32_t bit = rand() % 8;
-            zxmem[clr_offset] ^= 1<<bit;
-        }
-    }
-}
-#else
 void mutate(unsigned char *zxmem, int count, int gen) {
     for (int j = 0; j < count; j++) {
         uint32_t byte = rand() % ZX_VMEM_SIZE;
         uint32_t bit = rand() % 8;
-        if (gen > 200000 && gen < 400000) {
+        if (gen < 200000) {
+            if (byte >= 256*192/8) {
+                j--;
+                continue;
+            }
+            zxmem[byte] ^= 1<<bit;
+        } else if (gen > 200000 && gen < 400000) {
             if (byte < 256*192/8) {
                 j--;
                 continue;
@@ -355,12 +319,6 @@ void mutate(unsigned char *zxmem, int count, int gen) {
                 bg |= (clr & (1<<6)) >> 3;
                 if (fg != bg) zxmem[byte] = clr;
             }
-        } else if (gen < 200000) {
-            if (byte >= 256*192/8) {
-                j--;
-                continue;
-            }
-            zxmem[byte] ^= 1<<bit;
         } else if (gen > 400000 && gen < 600000) {
             if (byte < 256*192/8) {
                 j--;
@@ -372,7 +330,6 @@ void mutate(unsigned char *zxmem, int count, int gen) {
         }
     }
 }
-#endif
 
 // Render the ZX Spectrum VRAM into the framebuffer.
 void zx2rgb(unsigned char *fb, unsigned char *zxmem) {
@@ -478,14 +435,12 @@ int main(int argc, char **argv)
 
     /* Evolve the current solution using simulated annealing. */
     uint64_t generation = 0;
-    uint64_t temperature = 5; // Bits mutated per iteration.
+    uint64_t max_mutations = 5; // Max bits mutated per iteration.
+    float temperature = 0.1;
     while(1) {
-        if (temperature > 5 && !(generation % 10000))
-            temperature--;
-
         /* Copy what is currenly the best solution, and mutate it. */
         memcpy(new,best,ZX_VMEM_SIZE);
-        mutate(new,1+(rand()%temperature),generation);
+        mutate(new,1+(rand()%max_mutations),generation);
 
         /* Draw the mutated solution, and check what is its fitness.
          * In our case the fitness is the difference bewteen the target
@@ -499,7 +454,8 @@ int main(int argc, char **argv)
          * The magic constant 422 is actually the max difference between
          * two pixels as r,g,b coordinates in the space, so sqrt(255^2*3). */
         percdiff = (float)diff/(width*height*442)*100;
-        if (generation == 0 || percdiff <= bestdiff) {
+        float dice = (float)rand() / RAND_MAX;
+        if (generation == 0 || percdiff <= bestdiff || dice < temperature) {
             /* Save what is currently our "best" solution, even if actually
              * this may be a jump backward depending on the temperature.
              * It will be used as a base of the next iteration. */
@@ -509,11 +465,12 @@ int main(int argc, char **argv)
         if (generation % 1000 == 0) {
             zx2rgb(fb,best);
             sdlShowRgb(texture,renderer,fb,width,height);
-            printf("gen:%llu: diff:%f%% mut:%llu\n", generation, percdiff,
+            printf("gen:%llu: diff:%f%% temp:%g\n", generation, percdiff,
                 temperature);
         }
         processSdlEvents();
         generation++;
+        temperature -= 0.000001;
     }
     return 0;
 }
