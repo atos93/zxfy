@@ -101,7 +101,6 @@ static void sdlShowRgb(SDL_Texture *texture, SDL_Renderer *renderer, unsigned ch
 {
     (void)height;
     SDL_UpdateTexture(texture,NULL,fb,width*3);
-    SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
 }
