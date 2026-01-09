@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008-2024, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2008-2026, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -251,11 +251,14 @@ unsigned char *PngLoad(FILE *fp, int *widthptr, int *heightptr, int *alphaptr) {
 
 /* Compute the difference between two RGB frame buffers.
  * The differece is the sum of the differences of every pixel at the same
- * coordinates in the two images.
+ * coordinates in the two images. The returnd value is the percentage of
+ * difference, from 0 to 100 percent, where 100% means the maximum possible
+ * difference between an image all 0,0,0 pixels and an image all 255,255,255
+ * pixels, and 0% means identical images.
  *
  * A single pixel difference is computed as spacial distance between the RGB
  * color space. */
-long long computeDiff(unsigned char *a, unsigned char *b, int width, int height) {
+float computeDiff(unsigned char *a, unsigned char *b, int width, int height) {
     long long d = 0;
     long long dr, dg, db;
 
@@ -288,7 +291,13 @@ long long computeDiff(unsigned char *a, unsigned char *b, int width, int height)
             d += sqrt(dr*dr+dg*dg+db*db);
         }
     }
-    return d;
+
+    /* The percentage of pixels difference is calculate taking the ratio
+     * between the maximum possible pixel difference and the current
+     * difference.
+     * The magic constant 422 is actually the max difference between
+     * two pixels as r,g,b coordinates in the space, so sqrt(255^2*3). */
+    return (float)d/(width*height*442)*100;
 }
 
 void showHelp(char *progname) {
@@ -333,7 +342,6 @@ void mutate(unsigned char *zxmem, int count, int gen) {
 
 // Render the ZX Spectrum VRAM into the framebuffer.
 void zx2rgb(unsigned char *fb, unsigned char *zxmem) {
-    int blink = 0;
     for (int y = 0; y < 192; y++) {
         uint16_t y_offset = ((y & 0xC0)<<5) | ((y & 0x07)<<8) | ((y & 0x38)<<2);
         for (int x = 0; x < 32; x++) {
@@ -346,14 +354,9 @@ void zx2rgb(unsigned char *fb, unsigned char *zxmem) {
 
             // foreground and background color
             uint8_t fg, bg;
-            if ((clr & (1<<7)) && blink) {
-                fg = (clr>>3) & 7;
-                bg = clr & 7;
-            }
-            else {
-                fg = clr & 7;
-                bg = (clr>>3) & 7;
-            }
+            fg = clr & 7;
+            bg = (clr>>3) & 7;
+
             // color bit 6: standard vs bright
             fg |= (clr & (1<<6)) >> 3;
             bg |= (clr & (1<<6)) >> 3;
@@ -386,7 +389,6 @@ int main(int argc, char **argv)
     unsigned char *image, *fb, *new, *best;
     SDL_Texture *texture;
     SDL_Renderer *renderer;
-    long long diff;
     float percdiff, bestdiff = 0;
 
     /* Initialization */
@@ -446,14 +448,8 @@ int main(int argc, char **argv)
          * In our case the fitness is the difference bewteen the target
          * image and our image. */
         zx2rgb(fb,new);
-        diff = computeDiff(image,fb,width,height);
+        percdiff = computeDiff(image,fb,width,height);
 
-        /* The percentage of pixels difference is calculate taking the ratio
-         * between the maximum possible pixel difference and the current
-         * difference.
-         * The magic constant 422 is actually the max difference between
-         * two pixels as r,g,b coordinates in the space, so sqrt(255^2*3). */
-        percdiff = (float)diff/(width*height*442)*100;
         float dice = (float)rand() / RAND_MAX;
         if (generation == 0 || percdiff <= bestdiff || dice < temperature) {
             /* Save what is currently our "best" solution, even if actually
