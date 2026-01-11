@@ -250,7 +250,7 @@ unsigned char *PngLoad(FILE *fp, int *widthptr, int *heightptr, int *alphaptr) {
 
 /* Compute the difference between two RGB frame buffers.
  * The differece is the sum of the differences of every pixel at the same
- * coordinates in the two images. The returnd value is the percentage of
+ * coordinates in the two images. The returned value is the percentage of
  * difference, from 0 to 100 percent, where 100% means the maximum possible
  * difference between an image all 0,0,0 pixels and an image all 255,255,255
  * pixels, and 0% means identical images.
